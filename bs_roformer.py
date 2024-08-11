@@ -90,7 +90,7 @@ class RotaryEmbedding(nn.Module):
 class RMSNorm(nn.Module):
   """RMS normalization."""
   dim : int
-  epsilon: float = 1e-6
+  #epsilon: float = 1e-12
   dtype: Any = jnp.float32
   weight_dtype: Any = jnp.float32
   #kernel_axes: Tuple[str, ...] = ()
@@ -99,10 +99,11 @@ class RMSNorm(nn.Module):
   @nn.compact
   def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
     """Applies layer normalization on the input."""
-    x = jnp.asarray(x, jnp.float32)
+    #x = jnp.asarray(x, jnp.float32)
     #features = x.shape[-1]
-    mean2 = jnp.mean(lax.square(x), axis=-1, keepdims=True)
-    y = jnp.asarray(x * lax.rsqrt(mean2 + self.epsilon), self.dtype)
+    #mean2 = jnp.mean(lax.square(x), axis=-1, keepdims=True)
+    #y = jnp.asarray(x * lax.rsqrt(mean2 + self.epsilon), self.dtype)
+    x = x / jnp.linalg.norm(x,axis=-1,keepdims=True)
     gamma = self.param(
         "gamma",
         nn.initializers.ones,
@@ -111,7 +112,8 @@ class RMSNorm(nn.Module):
     )
 
     gamma = jnp.asarray(gamma, self.dtype)
-    return y * gamma * (self.dim ** 0.5)
+    y = x * gamma * (self.dim ** 0.5)
+    return y
 
 class FeedForward(nn.Module):
     dim:int
@@ -131,6 +133,7 @@ class FeedForward(nn.Module):
         return net(x)
 class Attend(nn.Module):
     dropout:float = 0.
+    precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
     #scale = None
     def setup(self):
         self.attn_dropout = nn.Dropout(self.dropout)
@@ -148,22 +151,29 @@ class Attend(nn.Module):
 
         #scale = default(self.scale, q.shape[-1] ** -0.5)
         scale = q.shape[-1] ** -0.5
+        q = q.transpose(0,2,1,3)
+        k = k.transpose(0,2,1,3)
+        v = v.transpose(0,2,1,3)
+        out = nn.dot_product_attention(q,k,v,dropout_rate=0,deterministic=deterministic,precision=self.precision,force_fp32_for_softmax=True)
+
+        return out.transpose(0,2,1,3)
         # similarity
 
-        sim = einsum(q, k,f"b h i d, b h j d -> b h i j") * scale
+        # sim = einsum(q, k,f"b h i d, b h j d -> b h i j") * scale
 
-        # attention
+        # # attention
 
-        attn = nn.softmax(sim,axis=-1)
-        attn = self.attn_dropout(attn,deterministic=deterministic)
+        # attn = nn.softmax(sim,axis=-1)
+        # attn = self.attn_dropout(attn,deterministic=deterministic)
 
-        # aggregate values
+        # # aggregate values
 
-        out = einsum(attn, v,f"b h i j, b h j d -> b h i d")
+        # out = einsum(attn, v,f"b h i j, b h j d -> b h i d")
 
-        return out
+        # return out
 
 def get_seq_pos(seq_len, offset = 0):
+
     return (jnp.arange(seq_len) + offset)# / self.interpolate_factor
 def embed_forward(
         t : jnp.ndarray,
@@ -182,7 +192,7 @@ def embed_forward(
         return freqs
 def rotate_queries_or_keys(t, seq_dim = None, offset = 0, scale = None ,dim_head=None,freqs=None):
     #seq_dim = default(seq_dim, self.default_seq_dim)
-    seq_dim = -3
+    seq_dim = -2
     #assert not self.use_xpos or exists(scale), 'you must use `.rotate_queries_and_keys` method instead and pass in both queries and keys, for length extrapolatable rotary embeddings'
     seq_len = t.shape[seq_dim]
 
@@ -220,11 +230,12 @@ class Attention(nn.Module):
     heads:int=8
     dim_head:int=64
     dropout:float=0.
+    precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
     @nn.compact
     def __call__(self, x,deterministic):
         dim_inner = self.heads * self.dim_head
         x = RMSNorm(self.dim)(x)
-        temp_x = nn.Dense(dim_inner * 3, use_bias=False,name="to_qkv")(x)
+        temp_x = nn.Dense(dim_inner * 3, use_bias=False,name="to_qkv",precision=self.precision)(x)
         q, k, v = rearrange(temp_x, 'b n (qkv h d) -> qkv b h n d', qkv=3, h=self.heads)
         freqs = self.param(
         "freqs",
@@ -237,7 +248,7 @@ class Attention(nn.Module):
         q = rotate_queries_or_keys(q,dim_head=self.dim_head,freqs=freqs)
         k = rotate_queries_or_keys(k,dim_head=self.dim_head,freqs=freqs)
 
-        out = Attend(dropout=self.dropout,name="attend")(q, k, v,deterministic)
+        out = Attend(dropout=self.dropout,name="attend",precision=self.precision)(q, k, v,deterministic)
 
         gates = nn.Dense(self.heads,name="to_gates")(x)
         out = out * nn.sigmoid(rearrange(gates, 'b n h -> b h n 1'))
@@ -256,13 +267,13 @@ class Transformer(nn.Module):
     ff_dropout:float=0.
     ff_mult:int=4
     norm_output:bool=True
-    
+    precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
     #rotary_embed=None
     def setup(self):
         layers = []
 
         for _ in range(self.depth):
-            attn = Attention(dim=self.dim, dim_head=self.dim_head, heads=self.heads, dropout=self.attn_dropout)
+            attn = Attention(dim=self.dim, dim_head=self.dim_head, heads=self.heads, dropout=self.attn_dropout,precision=self.precision)
 
             layers.append([
                 attn,
@@ -282,7 +293,7 @@ class Transformer(nn.Module):
 class BandSplit(nn.Module):
     dim:int
     dim_inputs: Sequence[int]
-
+    precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
       
     @nn.compact
     def __call__(self, x):
@@ -290,7 +301,7 @@ class BandSplit(nn.Module):
         for dim_in in self.dim_inputs:
           net = nn.Sequential([
               RMSNorm(dim_in),
-              nn.Dense(self.dim)
+              nn.Dense(self.dim,precision=self.precision)
           ])
 
           to_features.append(net)
@@ -338,7 +349,7 @@ class MaskEstimator(nn.Module):
         dim_hidden = self.dim * self.mlp_expansion_factor
 
         for dim_in in self.dim_inputs:
-            net = []
+            #net = []
             mlp_layer = MLP(self.dim, dim_in * 2, dim_hidden=dim_hidden, depth=self.depth)
             mlp = nn.Sequential([
                 mlp_layer,
@@ -369,8 +380,8 @@ DEFAULT_FREQS_PER_BANDS = [
     128, 129,
 ]
 class BSRoformer(nn.Module):
-    dim:int
-    depth:int
+    dim:int=256
+    depth:int=8
     stereo:bool=True
     num_stems:int=1
     time_transformer_depth:int=1
@@ -380,8 +391,8 @@ class BSRoformer(nn.Module):
     # in the paper, they divide into ~60 bands, test with 1 for starters
     dim_head:int=64
     heads:int=8
-    attn_dropout:float=0.
-    ff_dropout:float=0.
+    attn_dropout:float=0.1
+    ff_dropout:float=0.1
     #flash_attn=True
     dim_freqs_in:int=1025
     stft_n_fft:int=2048
@@ -392,9 +403,10 @@ class BSRoformer(nn.Module):
     #stft_window_fn: Optional[Callable] = None,
     mask_estimator_depth:int=2
     multi_stft_resolution_loss_weight:float=1.
-    multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256),
-    multi_stft_hop_size:int=147,
+    multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256)
+    multi_stft_hop_size:int=147
     multi_stft_normalized:bool=False
+    precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
     # multi_stft_window_fn: Callable = torch.hann_window
     @nn.compact
     def __call__(
@@ -433,7 +445,8 @@ class BSRoformer(nn.Module):
         
         x = BandSplit(
             dim=self.dim,
-            dim_inputs=freqs_per_bands_with_complex
+            dim_inputs=freqs_per_bands_with_complex,
+            precision = self.precision
         )(x)
         # transformer_kwargs = dict(
         #     dim=self.dim,
@@ -454,6 +467,7 @@ class BSRoformer(nn.Module):
             dim_head=self.dim_head,
             attn_dropout=self.attn_dropout,
             ff_dropout=self.ff_dropout,
+            precision=self.precision,
             norm_output=False)(x,deterministic=deterministic)
 
           x, = unpack(x, ps, '* t d')
@@ -467,9 +481,11 @@ class BSRoformer(nn.Module):
             dim_head=self.dim_head,
             attn_dropout=self.attn_dropout,
             ff_dropout=self.ff_dropout,
+            precision=self.precision,
             norm_output=False)(x,deterministic=deterministic)
 
           x, = unpack(x, ps, '* f d')
+
         x = RMSNorm(self.dim)(x)
         out = []
         for _ in range(self.num_stems):
@@ -495,8 +511,9 @@ class BSRoformer(nn.Module):
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s=audio_channels)
         t , recon_audio =jax.scipy.signal.istft(stft_repr,nfft=self.stft_n_fft,
             noverlap=self.stft_win_length-self.stft_hop_length,
-            nperseg=self.stft_win_length)
-        recon_audio = as_real(recon_audio)
+            nperseg=self.stft_win_length,boundary=False,input_onesided=True)
+        #recon_audio = as_real(recon_audio)
+        #recon_audio = recon_audio.real
         recon_audio = rearrange(recon_audio, '(b n s) t -> b n s t', s=audio_channels, n=self.num_stems)
         if self.num_stems == 1:
             recon_audio = rearrange(recon_audio, 'b 1 s t -> b s t')
