@@ -154,7 +154,7 @@ class Attend(nn.Module):
         q = q.transpose(0,2,1,3)
         k = k.transpose(0,2,1,3)
         v = v.transpose(0,2,1,3)
-        out = nn.dot_product_attention(q,k,v,dropout_rate=0,deterministic=deterministic,precision=self.precision,force_fp32_for_softmax=True)
+        out = nn.dot_product_attention(q,k,v,dropout_rate=0,deterministic=deterministic,precision=self.precision)
 
         return out.transpose(0,2,1,3)
         # similarity

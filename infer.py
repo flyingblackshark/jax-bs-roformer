@@ -173,6 +173,7 @@ def demix_track(model, mix,mesh, pbar=False):
         progress_bar.close()
 
     estimated_sources = result / counter
+    estimated_sources = jnp.nan_to_num(estimated_sources,copy=False,nan=0)
     #np.nan_to_num(estimated_sources, copy=False, nan=0.0)
 
     if length_init > 2 * border and (border > 0):
