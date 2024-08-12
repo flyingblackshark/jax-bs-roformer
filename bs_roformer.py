@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import jax.lax as lax
 import flax.linen as nn
 import audax
-
+import numpy as np
 def exists(val):
     return val is not None
 
@@ -292,20 +292,20 @@ class Transformer(nn.Module):
         return x
 class BandSplit(nn.Module):
     dim:int
-    dim_inputs: Sequence[int]
+    #dim_inputs: Sequence[int]
     precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
       
     @nn.compact
     def __call__(self, x):
         to_features = []
-        for dim_in in self.dim_inputs:
+        for dim_in in freqs_per_bands_with_complex:
           net = nn.Sequential([
               RMSNorm(dim_in),
               nn.Dense(self.dim,precision=self.precision)
           ])
 
           to_features.append(net)
-        freqs_per_bands_with_complex_cum = jnp.cumsum(jnp.asarray(self.dim_inputs))
+        
         x = jnp.split(x,freqs_per_bands_with_complex_cum, axis=-1)
 
         outs = []
@@ -379,6 +379,11 @@ DEFAULT_FREQS_PER_BANDS = [
     48, 48, 48, 48, 48, 48, 48, 48,
     128, 129,
 ]
+freqs_per_bands_with_complex = []
+for i in range(len(DEFAULT_FREQS_PER_BANDS)):
+    freqs_per_bands_with_complex.append(DEFAULT_FREQS_PER_BANDS[i] * 2 * 2)
+freqs_per_bands_with_complex_cum = np.cumsum(np.asarray(freqs_per_bands_with_complex))
+
 class BSRoformer(nn.Module):
     dim:int=256
     depth:int=8
@@ -387,7 +392,7 @@ class BSRoformer(nn.Module):
     time_transformer_depth:int=1
     freq_transformer_depth:int=1
     linear_transformer_depth:int=0
-    freqs_per_bands: Sequence[int] = DEFAULT_FREQS_PER_BANDS,
+    #freqs_per_bands: Sequence[int] = DEFAULT_FREQS_PER_BANDS,
     # in the paper, they divide into ~60 bands, test with 1 for starters
     dim_head:int=64
     heads:int=8
@@ -438,14 +443,12 @@ class BSRoformer(nn.Module):
         stft_repr = rearrange(stft_repr,'b s f t c -> b (f s) t c')  # merge stereo / mono into the frequency, with frequency leading dimension, for band splitting
 
         x = rearrange(stft_repr, 'b f t c -> b t (f c)')
-        freqs_per_bands_with_complex = []
-        for i in range(len(self.freqs_per_bands[0])):
-            freqs_per_bands_with_complex.append(self.freqs_per_bands[0][i] * audio_channels * 2)
+
         #freqs_per_bands_with_complex = tuple(2 * f * audio_channels for f in self.freqs_per_bands)
         
         x = BandSplit(
             dim=self.dim,
-            dim_inputs=freqs_per_bands_with_complex,
+            #dim_inputs=freqs_per_bands_with_complex,
             precision = self.precision
         )(x)
         # transformer_kwargs = dict(
