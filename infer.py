@@ -17,7 +17,7 @@ import jax
 from jax.experimental.compilation_cache import compilation_cache as cc
 cc.set_cache_dir("./jax_cache")
 def run_folder(args,verbose=False):
-    model = BSRoformer(256,8)
+    model = BSRoformer(256,8,precision=jax.lax.Precision.DEFAULT)
     params = load_params()
     model = (model,params)
     
@@ -53,6 +53,8 @@ def run_folder(args,verbose=False):
             continue
         meter = jln.Meter(sr) # create BS.1770 meter
         loudness_old = meter.integrated_loudness(mix.transpose(1,0))
+        if loudness_old > -16:
+            loudness_old -= 2
 
         if len(mix.shape) == 1:
             mix = jnp.stack([mix, mix], axis=0)
