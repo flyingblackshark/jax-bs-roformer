@@ -16,6 +16,7 @@ from functools import partial
 import jax
 from jax.experimental.compilation_cache import compilation_cache as cc
 cc.set_cache_dir("./jax_cache")
+
 def run_folder(args,verbose=False):
     model = BSRoformer(256,8,precision=jax.lax.Precision.DEFAULT)
     params = load_params()
@@ -206,5 +207,6 @@ def proc_folder(args):
 
 
 if __name__ == "__main__":
+    jax.distributed.initialize()
     proc_folder(None)
 
