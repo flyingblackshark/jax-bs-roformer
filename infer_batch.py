@@ -65,10 +65,10 @@ def run_folder(args,verbose=False):
             if bigmix == None:
                 bigmix = mix
             else:
-                bigmix = jnp.concatenate(bigmix,mix)
+                bigmix = np.concatenate(bigmix,mix)
             print(f"bigmix length now: {bigmix.shape[1]}")
             i+=1
-            meter = jln.Meter(sr,block_size=0.400 * jnp.log10(bigmix.shape[1])) # create BS.1770 meter
+            meter = jln.Meter(sr,block_size=0.400 * np.log(bigmix.shape[1])) # create BS.1770 meter
             loudness_old = meter.integrated_loudness(mix.transpose(1,0))
             if loudness_old > -16:
                 loudness_old -= 2
@@ -85,7 +85,7 @@ def run_folder(args,verbose=False):
         for j in range(res.shape[0]):
             estimates = estimates.transpose(1,0)
             estimates = res[length_arr[j]:length_arr[j+1]]
-            meter = jln.Meter(sr,block_size=0.400 * jnp.log10(estimates.shape[0]))
+            meter = jln.Meter(sr,block_size=0.400 * jnp.log(estimates.shape[0]))
             loudness_new = meter.integrated_loudness(estimates)
             estimates = jln.normalize.loudness(estimates, loudness_new, loudness_old_arr[j])
             output_file = os.path.join(args.store_dir, f"{file_name_arr[j]}_dereverb.wav")
