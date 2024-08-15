@@ -61,7 +61,7 @@ def run_folder(args,verbose=False):
             mix, sr = librosa.load(path, sr=44100, mono=False)
             length_arr.append(mix.shape[1])
             file_name, _ = os.path.splitext(os.path.basename(path))
-            file_name_arr.append(file_name_arr)
+            file_name_arr.append(file_name)
             if bigmix == None:
                 bigmix = mix
             else:
