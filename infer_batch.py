@@ -62,7 +62,7 @@ def run_folder(args,verbose=False):
             length_arr.append(mix.shape[1])
             file_name, _ = os.path.splitext(os.path.basename(path))
             file_name_arr.append(file_name)
-            if all(bigmix) is None:
+            if bigmix is None:
                 bigmix = mix
             else:
                 bigmix = jnp.concatenate(bigmix,mix,axis=1)
