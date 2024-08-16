@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import soundfile as sf
 import glob
 import os
-import jaxloudnorm as jln
+#import jaxloudnorm as jln
 from jax.sharding import Mesh, PartitionSpec, NamedSharding
 from jax.lax import with_sharding_constraint
 from jax.experimental import mesh_utils
@@ -68,7 +68,7 @@ def run_folder(args,verbose=False):
                 bigmix = mix
             else:
                 bigmix = jnp.concatenate([bigmix,mix],axis=1)
-            print(f"bigmix length now: {bigmix.shape[1]}")
+            print(f"reading: {file_name} bigmix length now: {bigmix.shape[1]}")
             i+=1
             # meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
             # loudness_old = meter.integrated_loudness(mix.transpose(1,0))
