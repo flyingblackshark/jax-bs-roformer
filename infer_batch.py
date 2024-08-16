@@ -56,13 +56,13 @@ def run_folder(args,verbose=False):
     file_name_arr = []
     while i < num_audios:
         bigmix = None
-        while True:
+        while i < num_audios:
             path = next(mixtures)
             mix, sr = librosa.load(path, sr=44100, mono=False)
             length_arr.append(mix.shape[1])
             file_name, _ = os.path.splitext(os.path.basename(path))
             file_name_arr.append(file_name)
-            if bigmix == None:
+            if bigmix is None:
                 bigmix = mix
             else:
                 bigmix = jnp.concatenate(bigmix,mix,axis=1)
