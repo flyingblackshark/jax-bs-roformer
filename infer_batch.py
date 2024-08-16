@@ -52,10 +52,12 @@ def run_folder(args,verbose=False):
         # try:
     i = 0
     #loudness_old_arr = []
-    length_arr = [0]
-    file_name_arr = []
+    
+    
     while i < num_audios:
         bigmix = None
+        file_name_arr = []
+        length_arr = [0]
         while i < num_audios:
             path = next(mixtures)
             mix, sr = librosa.load(path, sr=44100, mono=False)
@@ -82,15 +84,15 @@ def run_folder(args,verbose=False):
 
         res = demix_track(model,bigmix,mesh, pbar=False)
         estimates = res.squeeze(0)
-        for j in range(res.shape[0]):
-            estimates = estimates.transpose(1,0)
-            estimates = estimates[length_arr[j]:length_arr[j+1]]
+        for j in range(len(file_name_arr)):
+            estimates_now = estimates.transpose(1,0)
+            estimates_now = estimates_now[length_arr[j]:length_arr[j+1]]
             #meter = jln.Meter(sr,block_size=0.400 * jnp.log(estimates.shape[0]))
             #loudness_new = meter.integrated_loudness(estimates)
             #estimates = jln.normalize.loudness(estimates, loudness_new, loudness_old_arr[j])
-            estimates = estimates/jnp.max(estimates)
+            estimates_now = estimates_now/jnp.max(estimates_now)
             output_file = os.path.join(args.store_dir, f"{file_name_arr[j]}_dereverb.wav")
-            sf.write(output_file, estimates, sr, subtype = 'FLOAT')
+            sf.write(output_file, estimates_now, sr, subtype = 'FLOAT')
 
 
     #time.sleep(1)
