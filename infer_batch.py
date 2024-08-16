@@ -65,7 +65,7 @@ def run_folder(args,verbose=False):
             if bigmix == None:
                 bigmix = mix
             else:
-                bigmix = jnp.concatenate(bigmix,mix)
+                bigmix = jnp.concatenate(bigmix,mix,axis=1)
             print(f"bigmix length now: {bigmix.shape[1]}")
             i+=1
             # meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
@@ -84,7 +84,7 @@ def run_folder(args,verbose=False):
         estimates = res.squeeze(0)
         for j in range(res.shape[0]):
             estimates = estimates.transpose(1,0)
-            estimates = res[length_arr[j]:length_arr[j+1]]
+            estimates = estimates[length_arr[j]:length_arr[j+1]]
             #meter = jln.Meter(sr,block_size=0.400 * jnp.log(estimates.shape[0]))
             #loudness_new = meter.integrated_loudness(estimates)
             #estimates = jln.normalize.loudness(estimates, loudness_new, loudness_old_arr[j])
