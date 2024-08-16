@@ -84,6 +84,8 @@ def run_folder(args,verbose=False):
 
         res = demix_track(model,bigmix,mesh, pbar=False)
         estimates = res.squeeze(0)
+        length_arr = np.asarray(length_arr)
+        length_arr = np.cumsum(length_arr)
         for j in range(len(file_name_arr)):
             estimates_now = estimates.transpose(1,0)
             estimates_now = estimates_now[length_arr[j]:length_arr[j+1]]
