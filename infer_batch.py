@@ -95,6 +95,7 @@ def run_folder(args,verbose=False):
             estimates_now = estimates_now/jnp.max(estimates_now)
             output_file = os.path.join(args.store_dir, f"{file_name_arr[j]}_dereverb.wav")
             sf.write(output_file, estimates_now, sr, subtype = 'FLOAT')
+            print(f"{i}/{num_audios} write {output_file}")
 
 
     #time.sleep(1)
