@@ -51,7 +51,7 @@ def run_folder(args,verbose=False):
         #     all_mixtures_path.set_postfix({'track': os.path.basename(path)})
         # try:
     i = 0
-    loudness_old_arr = []
+    #loudness_old_arr = []
     length_arr = [0]
     file_name_arr = []
     while i < num_audios:
@@ -68,11 +68,11 @@ def run_folder(args,verbose=False):
                 bigmix = jnp.concatenate(bigmix,mix)
             print(f"bigmix length now: {bigmix.shape[1]}")
             i+=1
-            meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
-            loudness_old = meter.integrated_loudness(mix.transpose(1,0))
-            if loudness_old > -16:
-                loudness_old -= 2
-            loudness_old_arr.append(loudness_old)
+            # meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
+            # loudness_old = meter.integrated_loudness(mix.transpose(1,0))
+            # if loudness_old > -16:
+            #     loudness_old -= 2
+            # loudness_old_arr.append(loudness_old)
 
             if bigmix.shape[1] >= 352768 * 64:
                 break
@@ -85,9 +85,10 @@ def run_folder(args,verbose=False):
         for j in range(res.shape[0]):
             estimates = estimates.transpose(1,0)
             estimates = res[length_arr[j]:length_arr[j+1]]
-            meter = jln.Meter(sr,block_size=0.400 * jnp.log(estimates.shape[0]))
-            loudness_new = meter.integrated_loudness(estimates)
-            estimates = jln.normalize.loudness(estimates, loudness_new, loudness_old_arr[j])
+            #meter = jln.Meter(sr,block_size=0.400 * jnp.log(estimates.shape[0]))
+            #loudness_new = meter.integrated_loudness(estimates)
+            #estimates = jln.normalize.loudness(estimates, loudness_new, loudness_old_arr[j])
+            estimates = estimates/jnp.max(estimates)
             output_file = os.path.join(args.store_dir, f"{file_name_arr[j]}_dereverb.wav")
             sf.write(output_file, estimates, sr, subtype = 'FLOAT')
 
