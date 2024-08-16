@@ -64,11 +64,12 @@ def run_folder(args,verbose=False):
             length_arr.append(mix.shape[1])
             file_name, _ = os.path.splitext(os.path.basename(path))
             file_name_arr.append(file_name)
+            print(f"reading: {file_name}")
             if bigmix is None:
                 bigmix = mix
             else:
                 bigmix = jnp.concatenate([bigmix,mix],axis=1)
-            print(f"reading: {file_name} bigmix length now: {bigmix.shape[1]}")
+            print(f"bigmix length now: {bigmix.shape[1]}")
             i+=1
             # meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
             # loudness_old = meter.integrated_loudness(mix.transpose(1,0))
