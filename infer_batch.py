@@ -61,6 +61,8 @@ def run_folder(args,verbose=False):
         while i < num_audios:
             path = next(mixtures)
             mix, sr = librosa.load(path, sr=44100, mono=False)
+            if len(mix.shape) == 1:
+                mix = jnp.stack([mix, mix], axis=0)
             length_arr.append(mix.shape[1])
             file_name, _ = os.path.splitext(os.path.basename(path))
             file_name_arr.append(file_name)
@@ -80,8 +82,7 @@ def run_folder(args,verbose=False):
             if bigmix.shape[1] >= 352768 * 64:
                 break
 
-        # if len(mix.shape) == 1:
-        #     mix = jnp.stack([mix, mix], axis=0)
+
 
         res = demix_track(model,bigmix,mesh, pbar=False)
         estimates = res.squeeze(0)
