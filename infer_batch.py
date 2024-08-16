@@ -65,7 +65,7 @@ def run_folder(args,verbose=False):
             if bigmix is None:
                 bigmix = mix
             else:
-                bigmix = jnp.concatenate(bigmix,mix,axis=1)
+                bigmix = jnp.concatenate([bigmix,mix],axis=1)
             print(f"bigmix length now: {bigmix.shape[1]}")
             i+=1
             # meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
