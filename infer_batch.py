@@ -81,7 +81,7 @@ def run_folder(args,verbose=False):
         #     mix = jnp.stack([mix, mix], axis=0)
 
         res = demix_track(model,bigmix,mesh, pbar=False)
-        res = res.squeeze(0)
+        estimates = res.squeeze(0)
         for j in range(res.shape[0]):
             estimates = estimates.transpose(1,0)
             estimates = res[length_arr[j]:length_arr[j+1]]
