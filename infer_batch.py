@@ -65,10 +65,10 @@ def run_folder(args,verbose=False):
             if bigmix == None:
                 bigmix = mix
             else:
-                bigmix = np.concatenate(bigmix,mix)
+                bigmix = jnp.concatenate(bigmix,mix)
             print(f"bigmix length now: {bigmix.shape[1]}")
             i+=1
-            meter = jln.Meter(sr,block_size=0.400 * np.log(bigmix.shape[1])) # create BS.1770 meter
+            meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
             loudness_old = meter.integrated_loudness(mix.transpose(1,0))
             if loudness_old > -16:
                 loudness_old -= 2
