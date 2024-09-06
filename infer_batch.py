@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import soundfile as sf
 import glob
 import os
-#import jaxloudnorm as jln
+import jaxloudnorm as jln
 from jax.sharding import Mesh, PartitionSpec, NamedSharding
 from jax.lax import with_sharding_constraint
 from jax.experimental import mesh_utils
@@ -18,7 +18,7 @@ from jax.experimental.compilation_cache import compilation_cache as cc
 cc.set_cache_dir("./jax_cache")
 
 def run_folder(args,verbose=False):
-    model = BSRoformer(256,8,precision=jax.lax.Precision.DEFAULT)
+    model = BSRoformer(precision=jax.lax.Precision.DEFAULT)
     params = load_params()
     model = (model,params)
     
@@ -27,9 +27,6 @@ def run_folder(args,verbose=False):
     num_audios = len(all_mixtures_path)
     print('Total files found: {}'.format(num_audios))
 
-    # instruments = config.training.instruments
-    # if config.training.target_instrument is not None:
-    #     instruments = [config.training.target_instrument]
 
     if not os.path.isdir(args.store_dir):
         os.mkdir(args.store_dir)
@@ -45,25 +42,19 @@ def run_folder(args,verbose=False):
     mesh = Mesh(devices=device_mesh, axis_names=('data'))
     
     mixtures = iter(all_mixtures_path)
-    #for path in all_mixtures_path:
-        #print("Starting processing track: ", path)
-        # if not verbose:
-        #     all_mixtures_path.set_postfix({'track': os.path.basename(path)})
-        # try:
-    i = 0
-    #loudness_old_arr = []
-    
     
     while i < num_audios:
         bigmix = None
         file_name_arr = []
         length_arr = [0]
+        max_arr = []
         while i < num_audios:
             path = next(mixtures)
             mix, sr = librosa.load(path, sr=44100, mono=False)
             if len(mix.shape) == 1:
                 mix = jnp.stack([mix, mix], axis=0)
             length_arr.append(mix.shape[1])
+            max_arr.append(np.max(mix))
             file_name, _ = os.path.splitext(os.path.basename(path))
             file_name_arr.append(file_name)
             print(f"reading: {file_name}")
@@ -73,16 +64,8 @@ def run_folder(args,verbose=False):
                 bigmix = jnp.concatenate([bigmix,mix],axis=1)
             print(f"bigmix length now: {bigmix.shape[1]}")
             i+=1
-            # meter = jln.Meter(sr,block_size=0.400 * jnp.log(bigmix.shape[1])) # create BS.1770 meter
-            # loudness_old = meter.integrated_loudness(mix.transpose(1,0))
-            # if loudness_old > -16:
-            #     loudness_old -= 2
-            # loudness_old_arr.append(loudness_old)
-
             if bigmix.shape[1] >= 352768 * 64:
                 break
-
-
 
         res = demix_track(model,bigmix,mesh, pbar=False)
         estimates = res.squeeze(0)
@@ -91,10 +74,7 @@ def run_folder(args,verbose=False):
         for j in range(len(file_name_arr)):
             estimates_now = estimates.transpose(1,0)
             estimates_now = estimates_now[length_arr[j]:length_arr[j+1]]
-            #meter = jln.Meter(sr,block_size=0.400 * jnp.log(estimates.shape[0]))
-            #loudness_new = meter.integrated_loudness(estimates)
-            #estimates = jln.normalize.loudness(estimates, loudness_new, loudness_old_arr[j])
-            estimates_now = estimates_now/jnp.max(estimates_now)
+            estimates_now = estimates_now * (max_arr[j] / np.max(estimates_now))
             output_file = os.path.join(args.store_dir, f"{file_name_arr[j]}_dereverb.wav")
             sf.write(output_file, estimates_now, sr, subtype = 'FLOAT')
             print(f"{i}/{num_audios} write {output_file}")
@@ -163,12 +143,21 @@ def demix_track(model, mix,mesh, pbar=False):
 
         if len(batch_data) >= batch_size or (i >= mix.shape[1]):
             arr = jnp.stack(batch_data, axis=0)
-            #x = model.apply({"params":params},arr,deterministic=True)
             B_padding = max((batch_size-len(batch_data)),0)
             arr = jnp.pad(arr,((0,B_padding),(0,0),(0,0)))
+            #pre record loudness
+            #meter = jln.Meter(44100) # create BS.1770 meter
+            #loudness_old = jax.vmap(meter.integrated_loudness)(arr.transpose(0,2,1))
+            # for safety
+            # if loudness_old > -16:
+            #     loudness_old -= 2
+            # infer
             with mesh:
                 x = model_apply(params,arr)
-            #x = model(arr)
+            #restore loudness
+            #loudness_new = jax.vmap(meter.integrated_loudness)(x.transpose(0,2,1))
+            #x = jax.vmap(jln.normalize.loudness, in_axes=(0, 0, 0))(x.transpose(0,2,1), loudness_new, loudness_old).transpose(0,2,1)
+
             x = x[:batch_size-B_padding]
             window = windowingArray
             if i - step == 0:  # First audio chunk, no fadein
@@ -192,16 +181,11 @@ def demix_track(model, mix,mesh, pbar=False):
 
     estimated_sources = result / counter
     estimated_sources = jnp.nan_to_num(estimated_sources,copy=False,nan=0)
-    #np.nan_to_num(estimated_sources, copy=False, nan=0.0)
 
     if length_init > 2 * border and (border > 0):
         # Remove pad
         estimated_sources = estimated_sources[..., border:-border]
     return estimated_sources
-    # if config.training.target_instrument is None:
-    #     return {k: v for k, v in zip(config.training.instruments, estimated_sources)}
-    # else:
-    #     return {k: v for k, v in zip([config.training.target_instrument], estimated_sources)}
 def proc_folder(args):
     parser = argparse.ArgumentParser()
     # parser.add_argument("--model_type", type=str, default='mdx23c', 
