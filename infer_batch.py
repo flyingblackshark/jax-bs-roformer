@@ -47,14 +47,12 @@ def run_folder(args,verbose=False):
         bigmix = None
         file_name_arr = []
         length_arr = [0]
-        max_arr = []
         while i < num_audios:
             path = next(mixtures)
             mix, sr = librosa.load(path, sr=44100, mono=False)
             if len(mix.shape) == 1:
                 mix = jnp.stack([mix, mix], axis=0)
             length_arr.append(mix.shape[1])
-            max_arr.append(np.max(mix))
             file_name, _ = os.path.splitext(os.path.basename(path))
             file_name_arr.append(file_name)
             print(f"reading: {file_name}")
@@ -74,7 +72,7 @@ def run_folder(args,verbose=False):
         for j in range(len(file_name_arr)):
             estimates_now = estimates.transpose(1,0)
             estimates_now = estimates_now[length_arr[j]:length_arr[j+1]]
-            estimates_now = estimates_now * (max_arr[j] / np.max(estimates_now))
+            estimates_now = estimates_now  / np.max(estimates_now)
             output_file = os.path.join(args.store_dir, f"{file_name_arr[j]}_dereverb.wav")
             sf.write(output_file, estimates_now, sr, subtype = 'FLOAT')
             print(f"{i}/{num_audios} write {output_file}")
