@@ -169,3 +169,9 @@ input/
 output/
 jax_cache/
 util.py
+chkpt/
+.conda/
+dataset/
+configs/base2.yaml
+jax_cahce/
+jit_cache/

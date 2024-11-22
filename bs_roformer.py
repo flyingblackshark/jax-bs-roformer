@@ -133,7 +133,7 @@ class FeedForward(nn.Module):
         return net(x)
 class Attend(nn.Module):
     dropout:float = 0.
-    precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
+    #precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
     #scale = None
     def setup(self):
         self.attn_dropout = nn.Dropout(self.dropout)
@@ -154,7 +154,7 @@ class Attend(nn.Module):
         q = q.transpose(0,2,1,3)
         k = k.transpose(0,2,1,3)
         v = v.transpose(0,2,1,3)
-        out = nn.dot_product_attention(q,k,v,dropout_rate=0,deterministic=deterministic,precision=self.precision)
+        out = nn.dot_product_attention(q,k,v,dropout_rate=0,deterministic=deterministic)
 
         return out.transpose(0,2,1,3)
         # similarity
@@ -230,12 +230,12 @@ class Attention(nn.Module):
     heads:int=8
     dim_head:int=64
     dropout:float=0.
-    precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
+    #precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
     @nn.compact
     def __call__(self, x,deterministic):
         dim_inner = self.heads * self.dim_head
         x = RMSNorm(self.dim)(x)
-        temp_x = nn.Dense(dim_inner * 3, use_bias=False,name="to_qkv",precision=self.precision)(x)
+        temp_x = nn.Dense(dim_inner * 3, use_bias=False,name="to_qkv")(x)
         q, k, v = rearrange(temp_x, 'b n (qkv h d) -> qkv b h n d', qkv=3, h=self.heads)
         freqs = self.param(
         "freqs",
@@ -248,7 +248,7 @@ class Attention(nn.Module):
         q = rotate_queries_or_keys(q,dim_head=self.dim_head,freqs=freqs)
         k = rotate_queries_or_keys(k,dim_head=self.dim_head,freqs=freqs)
 
-        out = Attend(dropout=self.dropout,name="attend",precision=self.precision)(q, k, v,deterministic)
+        out = Attend(dropout=self.dropout,name="attend")(q, k, v,deterministic)
 
         gates = nn.Dense(self.heads,name="to_gates")(x)
         out = out * nn.sigmoid(rearrange(gates, 'b n h -> b h n 1'))
@@ -267,20 +267,17 @@ class Transformer(nn.Module):
     ff_dropout:float=0.
     ff_mult:int=4
     norm_output:bool=True
-    precision:jax.lax.Precision=jax.lax.Precision.HIGHEST
-    #rotary_embed=None
     def setup(self):
         layers = []
 
         for _ in range(self.depth):
-            attn = Attention(dim=self.dim, dim_head=self.dim_head, heads=self.heads, dropout=self.attn_dropout,precision=self.precision)
+            attn = Attention(dim=self.dim, dim_head=self.dim_head, heads=self.heads, dropout=self.attn_dropout)
 
             layers.append([
                 attn,
                 FeedForward(dim=self.dim, mult=self.ff_mult, dropout=self.ff_dropout)
             ])
 
-        #self.norm = RMSNorm(self.dim) 
         self.layers = layers
 
     def __call__(self, x,deterministic):
@@ -292,16 +289,17 @@ class Transformer(nn.Module):
         return x
 class BandSplit(nn.Module):
     dim:int
-    #dim_inputs: Sequence[int]
-    precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
+    freqs_per_bands_with_complex: Sequence[int]
+    #precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
       
     @nn.compact
     def __call__(self, x):
         to_features = []
-        for dim_in in freqs_per_bands_with_complex:
+        freqs_per_bands_with_complex_cum = np.cumsum(self.freqs_per_bands_with_complex)
+        for dim_in in self.freqs_per_bands_with_complex:
           net = nn.Sequential([
               RMSNorm(dim_in),
-              nn.Dense(self.dim,precision=self.precision)
+              nn.Dense(self.dim)
           ])
 
           to_features.append(net)
@@ -379,10 +377,7 @@ DEFAULT_FREQS_PER_BANDS = [
     48, 48, 48, 48, 48, 48, 48, 48,
     128, 129,
 ]
-freqs_per_bands_with_complex = []
-for i in range(len(DEFAULT_FREQS_PER_BANDS)):
-    freqs_per_bands_with_complex.append(DEFAULT_FREQS_PER_BANDS[i] * 2 * 2)
-freqs_per_bands_with_complex_cum = np.cumsum(np.asarray(freqs_per_bands_with_complex))
+
 
 class BSRoformer(nn.Module):
     dim:int=256
@@ -411,14 +406,14 @@ class BSRoformer(nn.Module):
     multi_stft_resolutions_window_sizes: Tuple[int, ...] = (4096, 2048, 1024, 512, 256)
     multi_stft_hop_size:int=147
     multi_stft_normalized:bool=False
-    precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
+    #precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
     # multi_stft_window_fn: Callable = torch.hann_window
     @nn.compact
     def __call__(
             self,
             raw_audio,
-            target=None,
-            return_loss_breakdown=False,
+            #target=None,
+            #return_loss_breakdown=False,
             deterministic=False):
         audio_channels = 2 if self.stereo else 1
 
@@ -443,13 +438,14 @@ class BSRoformer(nn.Module):
         stft_repr = rearrange(stft_repr,'b s f t c -> b (f s) t c')  # merge stereo / mono into the frequency, with frequency leading dimension, for band splitting
 
         x = rearrange(stft_repr, 'b f t c -> b t (f c)')
-
+        freqs_per_bands_with_complex = []
+        for i in range(len(DEFAULT_FREQS_PER_BANDS)):
+            freqs_per_bands_with_complex.append(DEFAULT_FREQS_PER_BANDS[i] * 2 * 2)
         #freqs_per_bands_with_complex = tuple(2 * f * audio_channels for f in self.freqs_per_bands)
         
         x = BandSplit(
             dim=self.dim,
-            #dim_inputs=freqs_per_bands_with_complex,
-            precision = self.precision
+            freqs_per_bands_with_complex=freqs_per_bands_with_complex
         )(x)
         # transformer_kwargs = dict(
         #     dim=self.dim,
@@ -470,7 +466,6 @@ class BSRoformer(nn.Module):
             dim_head=self.dim_head,
             attn_dropout=self.attn_dropout,
             ff_dropout=self.ff_dropout,
-            precision=self.precision,
             norm_output=False)(x,deterministic=deterministic)
 
           x, = unpack(x, ps, '* t d')
@@ -484,7 +479,6 @@ class BSRoformer(nn.Module):
             dim_head=self.dim_head,
             attn_dropout=self.attn_dropout,
             ff_dropout=self.ff_dropout,
-            precision=self.precision,
             norm_output=False)(x,deterministic=deterministic)
 
           x, = unpack(x, ps, '* f d')
@@ -523,8 +517,8 @@ class BSRoformer(nn.Module):
 
         # if a target is passed in, calculate loss for learning
 
-        if not exists(target):
-            return recon_audio
+        #if not exists(target):
+        return recon_audio
 
 
 def as_complex(x):

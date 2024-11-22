@@ -1,0 +1,36 @@
+train:
+  seed: 1234
+  learning_rate: 5e-5
+  betas: [0.9, 0.99] 
+  total_steps: 150_000
+  max_to_keep : 5
+#############################
+data: 
+  data_columns : ["mixture","vocals"]
+  segment_size: 44100
+#############################
+model:
+  stereo: True
+  dim: 256
+  depth: 8
+  time_transformer_depth: 1
+  freq_transformer_depth: 1
+  multi_stft_resolutions_window_sizes: [4096, 2048, 1024, 512, 256]
+  stft_n_fft: 2048
+  stft_win_length: 2048
+  multi_stft_hop_size: 147
+log:
+  info_interval: 100
+  eval_interval: 1000
+  save_interval: 1000
+  pth_dir: 'gs://[some google bucket path]/chkpt' # gcs bucket path or absolute path
+  log_dir: 'logs'
+#############################
+data_loader:
+  dataset_path: "[need to be absolute path]/*.arrayrecord"
+  host_number: 1 
+  global_batch_size: 8
+  num_epochs: 100
+  worker_count: 8
+  drop_remainder: False
+  shuffle: False

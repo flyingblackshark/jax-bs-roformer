@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import soundfile as sf
 import glob
 import os
-import jaxloudnorm as jln
 from jax.sharding import Mesh, PartitionSpec, NamedSharding
 from jax.lax import with_sharding_constraint
 from jax.experimental import mesh_utils
@@ -16,8 +15,8 @@ from functools import partial
 import jax
 from jax.experimental.compilation_cache import compilation_cache as cc
 cc.set_cache_dir("./jax_cache")
-def run_folder(args,verbose=False):
-    model = BSRoformer(256,8,precision=jax.lax.Precision.DEFAULT)
+def run_folder(args):
+    model = BSRoformer(256,8)
     params = load_params()
     model = (model,params)
     
@@ -32,29 +31,25 @@ def run_folder(args,verbose=False):
     if not os.path.isdir(args.store_dir):
         os.mkdir(args.store_dir)
 
-    if not verbose:
-        all_mixtures_path = tqdm(all_mixtures_path, desc="Total progress")
+    # if not verbose:
+    #     all_mixtures_path = tqdm(all_mixtures_path, desc="Total progress")
 
     # if args.disable_detailed_pbar:
     #     detailed_pbar = False
     # else:
     #     detailed_pbar = True
-    device_mesh = mesh_utils.create_device_mesh((4,))
+    device_mesh = mesh_utils.create_device_mesh((jax.device_count(),))
     mesh = Mesh(devices=device_mesh, axis_names=('data'))
     for path in all_mixtures_path:
         print("Starting processing track: ", path)
-        if not verbose:
-            all_mixtures_path.set_postfix({'track': os.path.basename(path)})
+        # if not verbose:
+        #     all_mixtures_path.set_postfix({'track': os.path.basename(path)})
         try:
             mix, sr = librosa.load(path, sr=44100, mono=False)
         except Exception as e:
             print('Can read track: {}'.format(path))
             print('Error message: {}'.format(str(e)))
             continue
-        meter = jln.Meter(sr) # create BS.1770 meter
-        loudness_old = meter.integrated_loudness(mix.transpose(1,0))
-        if loudness_old > -16:
-            loudness_old -= 2
 
         if len(mix.shape) == 1:
             mix = jnp.stack([mix, mix], axis=0)
@@ -63,9 +58,8 @@ def run_folder(args,verbose=False):
         # for instr in instruments:
         
         estimates = res.squeeze(0)
+        estimates = estimates/1024.
         estimates = estimates.transpose(1,0)
-        loudness_new = meter.integrated_loudness(estimates)
-        estimates = jln.normalize.loudness(estimates, loudness_new, loudness_old)
         
         # if 'normalize' in config.inference:
         #     if config.inference['normalize'] is True:
@@ -128,7 +122,7 @@ def demix_track(model, mix,mesh, pbar=False):
     i = 0
     batch_data = []
     batch_locations = []
-    progress_bar = tqdm(total=mix.shape[1], desc="Processing audio chunks", leave=False) if pbar else None
+    #progress_bar = tqdm(total=mix.shape[1], desc="Processing audio chunks", leave=False) if pbar else None
 
     while i < mix.shape[1]:
         # print(i, i + C, mix.shape[1])
@@ -168,11 +162,11 @@ def demix_track(model, mix,mesh, pbar=False):
             batch_data = []
             batch_locations = []
 
-        if progress_bar:
-            progress_bar.update(step)
+    #     if progress_bar:
+    #         progress_bar.update(step)
 
-    if progress_bar:
-        progress_bar.close()
+    # if progress_bar:
+    #     progress_bar.close()
 
     estimated_sources = result / counter
     estimated_sources = jnp.nan_to_num(estimated_sources,copy=False,nan=0)
@@ -194,9 +188,9 @@ def proc_folder(args):
     parser.add_argument("--start_check_point", type=str, default='deverb_bs_roformer_8_256dim_8depth.ckpt', help="Initial checkpoint to valid weights")
     parser.add_argument("--input_folder",default="./input", type=str, help="folder with mixtures to process")
     parser.add_argument("--store_dir", default="./output", type=str, help="path to store results as wav file")
-    parser.add_argument("--disable_detailed_pbar", action='store_true', help="disable detailed progress bar")
+    # parser.add_argument("--disable_detailed_pbar", action='store_true', help="disable detailed progress bar")
     args = parser.parse_args()
-    run_folder(args,verbose=True)
+    run_folder(args)
 
 
 if __name__ == "__main__":

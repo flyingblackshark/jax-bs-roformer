@@ -1,0 +1,11 @@
+loguru
+argparse
+flax
+audax
+einops
+librosa
+tensorflow-cpu
+array_record
+grain
+loguru
+OmegaConf
