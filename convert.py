@@ -1,8 +1,8 @@
 import flax
 import jax
 import torch
-def load_params(hp):
-    state_dict = torch.load("deverb_bs_roformer_8_256dim_8depth.ckpt")
+def load_params(check_point,hp):
+    state_dict = torch.load(check_point)
     params = {
 
     }

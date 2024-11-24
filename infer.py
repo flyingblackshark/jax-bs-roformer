@@ -25,7 +25,7 @@ def run_folder(args):
                         stereo=hp.model.stereo,
                         time_transformer_depth=hp.model.time_transformer_depth,
                         freq_transformer_depth=hp.model.freq_transformer_depth)
-    params = load_params(hp)
+    params = load_params(args.start_check_point,hp)
     model = (model,params)
     
     all_mixtures_path = glob.glob(args.input_folder + '/*.*')
