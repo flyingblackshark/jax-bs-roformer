@@ -1,0 +1,1 @@
+python infer.py --start_check_point deverb_bs_roformer_8_256dim_8depth.ckpt --input_folder ./input --store_dir ./output

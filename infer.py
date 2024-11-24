@@ -14,10 +14,18 @@ from jax.experimental import mesh_utils
 from functools import partial
 import jax
 from jax.experimental.compilation_cache import compilation_cache as cc
+import time
+from omegaconf import OmegaConf
 cc.set_cache_dir("./jax_cache")
 def run_folder(args):
-    model = BSRoformer(256,8)
-    params = load_params()
+    hp = OmegaConf.load(args.config_path)
+    start_time = time.time()
+    model = BSRoformer(dim=hp.model.dim,
+                        depth=hp.model.depth,
+                        stereo=hp.model.stereo,
+                        time_transformer_depth=hp.model.time_transformer_depth,
+                        freq_transformer_depth=hp.model.freq_transformer_depth)
+    params = load_params(hp)
     model = (model,params)
     
     all_mixtures_path = glob.glob(args.input_folder + '/*.*')
@@ -33,17 +41,10 @@ def run_folder(args):
 
     # if not verbose:
     #     all_mixtures_path = tqdm(all_mixtures_path, desc="Total progress")
-
-    # if args.disable_detailed_pbar:
-    #     detailed_pbar = False
-    # else:
-    #     detailed_pbar = True
     device_mesh = mesh_utils.create_device_mesh((jax.device_count(),))
     mesh = Mesh(devices=device_mesh, axis_names=('data'))
     for path in all_mixtures_path:
         print("Starting processing track: ", path)
-        # if not verbose:
-        #     all_mixtures_path.set_postfix({'track': os.path.basename(path)})
         try:
             mix, sr = librosa.load(path, sr=44100, mono=False)
         except Exception as e:
@@ -52,50 +53,37 @@ def run_folder(args):
             continue
 
         if len(mix.shape) == 1:
-            mix = jnp.stack([mix, mix], axis=0)
+            mix = np.stack([mix, mix], axis=0)
 
-        res = demix_track(model,mix,mesh, pbar=False)
-        # for instr in instruments:
+        #mix_orig = mix.copy()
+
+        res = demix_track(model,mix,mesh,hp)
         
         estimates = res.squeeze(0)
         estimates = estimates/1024.
         estimates = estimates.transpose(1,0)
         
-        # if 'normalize' in config.inference:
-        #     if config.inference['normalize'] is True:
-        #       estimates = estimates * std + mean
         file_name, _ = os.path.splitext(os.path.basename(path))
         output_file = os.path.join(args.store_dir, f"{file_name}_dereverb.wav")
         sf.write(output_file, estimates, sr, subtype = 'FLOAT')
 
-        # # Output "instrumental", which is an inverse of 'vocals'
-        # if 'vocals' in instruments and args.extract_instrumental:
-        #     file_name, _ = os.path.splitext(os.path.basename(path))
-        #     instrum_file_name = os.path.join(args.store_dir, f"{file_name}_instrumental.wav")
-        #     estimates = res['vocals'].T
-        #     if 'normalize' in config.inference:
-        #         if config.inference['normalize'] is True:
-        #             estimates = estimates * std + mean
-        #     sf.write(instrum_file_name, mix_orig.T - estimates, sr, subtype = 'FLOAT')
+        # file_name, _ = os.path.splitext(os.path.basename(path))
+        # instrum_file_name = os.path.join(args.store_dir, f"{file_name}_instrumental.wav")
+        # sf.write(instrum_file_name, mix_orig.T - estimates, sr, subtype = 'FLOAT')
 
     #time.sleep(1)
-    #print("Elapsed time: {:.2f} sec".format(time.time() - start_time))
-def _getWindowingArray(window_size, fade_size):
-    fadein = jnp.linspace(0, 1, fade_size)
-    fadeout = jnp.linspace(1, 0, fade_size)
-    window = jnp.ones(window_size)
-    window = window.at[-fade_size:].set(window[-fade_size:]*fadeout)
-    window = window.at[:fade_size].set(window[:fade_size]*fadein)
-    return window
+    print("Elapsed time: {:.2f} sec".format(time.time() - start_time))
 
-def demix_track(model, mix,mesh, pbar=False):
+
+def demix_track(model, mix,mesh, hp):
     model , params = model
-    C = 352768 #config.audio.chunk_size
-    N = 4 #config.inference.num_overlap
+    #default chunk size 
+    C = hp.inference.chunk_size
+    N = hp.inference.num_overlap
     fade_size = C // 10
     step = int(C // N)
     border = C - step
-    batch_size = 4 #config.inference.batch_size
+    batch_size = hp.inference.batch_size
 
     x_sharding = NamedSharding(mesh,PartitionSpec('data'))
     @partial(jax.jit, in_shardings=(None,x_sharding),
@@ -106,8 +94,14 @@ def demix_track(model, mix,mesh, pbar=False):
 
     # Do pad from the beginning and end to account floating window results better
     if length_init > 2 * border and (border > 0):
-        mix =jnp.pad(mix, ((0,0),(border, border)), mode='reflect')
-
+        mix = np.pad(mix, ((0,0),(border, border)), mode='reflect')
+    def _getWindowingArray(window_size, fade_size):
+        fadein = np.linspace(0, 1, fade_size)
+        fadeout = np.linspace(1, 0, fade_size)
+        window = np.ones(window_size)
+        window[-fade_size:] = (window[-fade_size:]*fadeout)
+        window[:fade_size] = (window[:fade_size]*fadein)
+        return window
     # windowingArray crossfades at segment boundaries to mitigate clicking artifacts
     windowingArray = _getWindowingArray(C, fade_size)
 
@@ -117,74 +111,63 @@ def demix_track(model, mix,mesh, pbar=False):
     # else:
     #     req_shape = (len(config.training.instruments),) + tuple(mix.shape)
 
-    result = jnp.zeros(req_shape, dtype=jnp.float32)
-    counter = jnp.zeros(req_shape, dtype=jnp.float32)
+    result = np.zeros(req_shape, dtype=jnp.float32)
+    counter = np.zeros(req_shape, dtype=jnp.float32)
     i = 0
     batch_data = []
     batch_locations = []
-    #progress_bar = tqdm(total=mix.shape[1], desc="Processing audio chunks", leave=False) if pbar else None
 
     while i < mix.shape[1]:
-        # print(i, i + C, mix.shape[1])
         part = mix[:, i:i + C]
         length = part.shape[-1]
         if length < C:
             if length > C // 2 + 1:
-                part = jnp.pad(part,((0,0),(0,C-length)),mode='reflect')
-                #part = nn.functional.pad(input=part, pad=(0, C - length), mode='reflect')
+                part = np.pad(part,((0,0),(0,C-length)),mode='reflect')
             else:
-                part = jnp.pad(part,((0,0),(0,C-length)),mode='constant')
-                #part = nn.functional.pad(input=part, pad=(0, C - length, 0, 0), mode='constant', value=0)
+                part = np.pad(part,((0,0),(0,C-length)),mode='constant')
         batch_data.append(part)
         batch_locations.append((i, length))
         i += step
 
         if len(batch_data) >= batch_size or (i >= mix.shape[1]):
-            arr = jnp.stack(batch_data, axis=0)
-            #x = model.apply({"params":params},arr,deterministic=True)
+            arr = np.stack(batch_data, axis=0)
             B_padding = max((batch_size-len(batch_data)),0)
-            arr = jnp.pad(arr,((0,B_padding),(0,0),(0,0)))
+            arr = np.pad(arr,((0,B_padding),(0,0),(0,0)))
+
+            # infer
             with mesh:
+                arr = jnp.asarray(arr)
                 x = model_apply(params,arr)
-            #x = model(arr)
-            x = x[:batch_size-B_padding]
             window = windowingArray
             if i - step == 0:  # First audio chunk, no fadein
-                window = window.at[:fade_size].set(1)
+                window[:fade_size] =1
             elif i >= mix.shape[1]:  # Last audio chunk, no fadeout
-                window = window.at[-fade_size:].set(1)
-
+                window[-fade_size:] =1
+            
+            total_add_value = jax.jit(jnp.multiply, in_shardings=(x_sharding,None),out_shardings=x_sharding)(x[..., :C],window)
+            total_add_value = total_add_value[:batch_size-B_padding]
+            total_add_value = np.asarray(total_add_value)
             for j in range(len(batch_locations)):
                 start, l = batch_locations[j]
-                result = result.at[..., start:start+l].set(result[..., start:start+l] + x[j][..., :l] * window[..., :l])
-                counter = counter.at[..., start:start+l].set(counter[..., start:start+l] + window[..., :l])
+                result[..., start:start+l] += total_add_value[j][..., :l]
+                counter[..., start:start+l]+= window[..., :l]
 
             batch_data = []
             batch_locations = []
 
-    #     if progress_bar:
-    #         progress_bar.update(step)
-
-    # if progress_bar:
-    #     progress_bar.close()
-
     estimated_sources = result / counter
-    estimated_sources = jnp.nan_to_num(estimated_sources,copy=False,nan=0)
-    #np.nan_to_num(estimated_sources, copy=False, nan=0.0)
+    np.nan_to_num(estimated_sources, copy=False, nan=0.0)
 
     if length_init > 2 * border and (border > 0):
         # Remove pad
         estimated_sources = estimated_sources[..., border:-border]
     return estimated_sources
-    # if config.training.target_instrument is None:
-    #     return {k: v for k, v in zip(config.training.instruments, estimated_sources)}
-    # else:
-    #     return {k: v for k, v in zip([config.training.target_instrument], estimated_sources)}
+
 def proc_folder(args):
     parser = argparse.ArgumentParser()
     # parser.add_argument("--model_type", type=str, default='mdx23c', 
     #                     help="One of bandit, bandit_v2, bs_roformer, htdemucs, mdx23c, mel_band_roformer, scnet, scnet_unofficial, segm_models, swin_upernet, torchseg")
-    #parser.add_argument("--config_path", type=str, help="path to config file")
+    parser.add_argument("--config_path", type=str, default='./configs/base.yaml', help="path to config file")
     parser.add_argument("--start_check_point", type=str, default='deverb_bs_roformer_8_256dim_8depth.ckpt', help="Initial checkpoint to valid weights")
     parser.add_argument("--input_folder",default="./input", type=str, help="folder with mixtures to process")
     parser.add_argument("--store_dir", default="./output", type=str, help="path to store results as wav file")

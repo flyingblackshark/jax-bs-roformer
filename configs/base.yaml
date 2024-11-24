@@ -34,3 +34,7 @@ data_loader:
   worker_count: 8
   drop_remainder: False
   shuffle: False
+inference:
+  batch_size: 2
+  chunk_size: 352768
+  num_overlap: 4

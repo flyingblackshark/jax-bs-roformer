@@ -1,7 +1,7 @@
 import flax
 import jax
 import torch
-def load_params():
+def load_params(hp):
     state_dict = torch.load("deverb_bs_roformer_8_256dim_8depth.ckpt")
     params = {
 
@@ -15,7 +15,7 @@ def load_params():
         params[f"MaskEstimator_0.to_freqs_{i}.layers_0.layers_0.bias"]=state_dict[f"mask_estimators.0.to_freqs.{i}.0.0.bias"]
         params[f"MaskEstimator_0.to_freqs_{i}.layers_0.layers_2.kernel"]=state_dict[f"mask_estimators.0.to_freqs.{i}.0.2.weight"].transpose(0,1)
         params[f"MaskEstimator_0.to_freqs_{i}.layers_0.layers_2.bias"]=state_dict[f"mask_estimators.0.to_freqs.{i}.0.2.bias"]
-    for i in range(8):
+    for i in range(hp.model.depth):
         #for j in range(2):
 
         params[f"time_transformer_{i}.layers_0_0.freqs"]=state_dict[f"layers.{i}.0.layers.0.0.rotary_embed.freqs"]
