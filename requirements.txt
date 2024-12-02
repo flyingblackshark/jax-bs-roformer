@@ -3,3 +3,4 @@ flax
 audax
 einops
 librosa
+OmegaConf
