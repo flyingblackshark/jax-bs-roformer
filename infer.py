@@ -60,7 +60,7 @@ def run_folder(args):
         res = demix_track(model,mix,mesh,hp)
         
         estimates = res.squeeze(0)
-        estimates = estimates/1024.
+        #estimates = estimates/1024.
         estimates = estimates.transpose(1,0)
         
         file_name, _ = os.path.splitext(os.path.basename(path))

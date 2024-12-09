@@ -9,6 +9,7 @@ import jax.lax as lax
 import flax.linen as nn
 import audax
 import numpy as np
+import util
 def exists(val):
     return val is not None
 
@@ -154,7 +155,7 @@ class Attend(nn.Module):
         q = q.transpose(0,2,1,3)
         k = k.transpose(0,2,1,3)
         v = v.transpose(0,2,1,3)
-        out = nn.dot_product_attention(q,k,v,dropout_rate=0,deterministic=deterministic)
+        out = jax.nn.dot_product_attention(q,k,v,scale=scale)
 
         return out.transpose(0,2,1,3)
         # similarity
@@ -290,7 +291,6 @@ class Transformer(nn.Module):
 class BandSplit(nn.Module):
     dim:int
     freqs_per_bands_with_complex: Sequence[int]
-    #precision : jax.lax.Precision = jax.lax.Precision.HIGHEST
       
     @nn.compact
     def __call__(self, x):
@@ -504,9 +504,8 @@ class BSRoformer(nn.Module):
         stft_repr = stft_repr * mask
 
         # istft
-
         stft_repr = rearrange(stft_repr, 'b n (f s) t -> (b n s) f t', s=audio_channels)
-        t , recon_audio =jax.scipy.signal.istft(stft_repr,nfft=self.stft_n_fft,
+        t , recon_audio =util.istft(stft_repr,nfft=self.stft_n_fft,
             noverlap=self.stft_win_length-self.stft_hop_length,
             nperseg=self.stft_win_length,boundary=False,input_onesided=True)
         #recon_audio = as_real(recon_audio)
